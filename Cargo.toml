@@ -1,0 +1,39 @@
+[package]
+name = "nb-pick"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+description = "Offline classroom face picker"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+rand = "0.9.2"
+raw-window-handle = "0.6.2"
+rodio = "0.21.1"
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["std", "ndarray", "download-binaries", "copy-dylibs", "tls-native"] }
+ndarray = "0.17.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "raw-window-handle-06"] }
+
+[target.'cfg(windows)'.dependencies]
+nokhwa = { version = "0.10.11", features = ["input-msmf"] }
+windows = { version = "0.62.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[build-dependencies]
+slint-build = "=1.18.1"
+
+[dev-dependencies]
+i-slint-backend-testing = { version = "=1.18.1", features = ["renderer-software"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+incremental = false
+

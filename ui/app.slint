@@ -1,0 +1,806 @@
+export struct FaceBox {
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+}
+
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <color> tint: #18231e;
+    in property <color> fill: #f5f2ebeb;
+    callback clicked();
+
+    width: 38px;
+    height: 38px;
+    border-radius: 19px;
+    background: fill;
+    accessible-role: button;
+    accessible-label: label;
+
+    Image {
+        width: 18px;
+        height: 18px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        colorize: root.tint;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component PrimaryButton inherits TouchArea {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> show-icon: true;
+    height: 48px;
+    accessible-role: button;
+    accessible-label: text;
+
+    Rectangle {
+        border-radius: 8px;
+        background: root.pressed ? #0d634f : root.has-hover ? #158b6f : #11745d;
+
+        HorizontalLayout {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            alignment: center;
+            spacing: 8px;
+            if root.show-icon: Rectangle {
+                width: 18px;
+                height: 48px;
+                background: transparent;
+                Image {
+                    y: 15px;
+                    width: 18px;
+                    height: 18px;
+                    source: root.icon;
+                    colorize: white;
+                }
+            }
+            Text {
+                height: 48px;
+                text: root.text;
+                color: white;
+                font-size: 17px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+component DurationOption inherits TouchArea {
+    in property <int> seconds;
+    in property <bool> selected;
+    callback chosen(int);
+
+    horizontal-stretch: 1;
+    height: 36px;
+    accessible-role: radio-button;
+    accessible-label: seconds + " 秒";
+    clicked => { root.chosen(root.seconds); }
+
+    Rectangle {
+        border-radius: 6px;
+        background: root.selected ? #18231e : root.has-hover ? #e7e7e0 : #efeee8;
+        Text {
+            text: root.seconds + " 秒";
+            color: root.selected ? white : #4e5b54;
+            font-size: 13px;
+            font-weight: root.selected ? 700 : 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "班里挑一";
+    in property <int> page: 0;
+    in property <image> frame;
+    in property <image> portrait;
+    in property <[FaceBox]> faces;
+    in property <[string]> cameras: [];
+    in property <string> status: "正在准备离线人脸模型";
+    in property <string> camera-info: "正在查找摄像头";
+    in property <string> camera-name: "摄像头";
+    in property <string> failure-detail: "5 秒内没有检测到人脸\n请调整摄像头后重试";
+    in property <float> progress: 0;
+    in property <int> face-count: 0;
+    in property <int> drawn-count: 0;
+    in property <int> active-camera-index: -1;
+    in property <float> scan-seconds: 3;
+    in-out property <bool> muted: false;
+    in property <bool> camera-menu: false;
+    in property <bool> settings: false;
+    callback retry();
+    callback redraw();
+    callback select-camera(int);
+    callback toggle-settings();
+    callback toggle-cameras();
+    callback close-menus();
+    callback quit();
+    callback duration-changed(float);
+    callback mute-changed(bool);
+
+    no-frame: true;
+    forward-focus: key-handler;
+    background: transparent;
+    preferred-width: 1000px;
+    preferred-height: 650px;
+    default-font-family: "Microsoft YaHei UI";
+
+    shell := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: page == 2 ? 22px : 0px;
+        clip: true;
+        background: page == 2 ? #f4f1ea : #09110e;
+
+        key-handler := FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    if settings || camera-menu {
+                        close-menus();
+                    } else {
+                        quit();
+                    }
+                    return accept;
+                }
+                if page == 2 && (event.text == Key.Return || event.text == Key.Space) {
+                    redraw();
+                    return accept;
+                }
+                reject
+            }
+        }
+
+        // Loading and model failure.
+        if page == 0: Rectangle {
+            background: #09110e;
+
+            Rectangle {
+                x: parent.width / 2 - 34px;
+                y: parent.height / 2 - 130px;
+                width: 68px;
+                height: 68px;
+                border-radius: 20px;
+                background: #d8f264;
+                Image {
+                    x: 19px;
+                    y: 19px;
+                    width: 30px;
+                    height: 30px;
+                    source: @image-url("../assets/icons/scan-face.svg");
+                    colorize: #102018;
+                }
+            }
+
+            Text {
+                x: 20px;
+                y: parent.height / 2 - 45px;
+                width: parent.width - 40px;
+                text: "班里挑一";
+                color: #f5f2ea;
+                font-size: 31px;
+                font-weight: 800;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                x: 30px;
+                y: parent.height / 2 + 8px;
+                width: parent.width - 60px;
+                height: 54px;
+                text: status;
+                color: #9caaa3;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+
+            Rectangle {
+                x: parent.width / 2 - 80px;
+                y: parent.height / 2 + 82px;
+                width: 160px;
+                height: 3px;
+                border-radius: 2px;
+                background: #26332d;
+
+                if progress >= 0: Rectangle {
+                    width: parent.width * progress;
+                    height: 3px;
+                    border-radius: 2px;
+                    background: #d8f264;
+                }
+            }
+
+            if progress < 0: PrimaryButton {
+                x: parent.width / 2 - 78px;
+                y: parent.height / 2 + 102px;
+                width: 156px;
+                text: "重新加载";
+                icon: @image-url("../assets/icons/refresh.svg");
+                clicked => { retry(); }
+            }
+        }
+
+        // Live classroom scanning.
+        if page == 1: Rectangle {
+            background: #07100c;
+
+            Image {
+                width: 100%;
+                height: 100%;
+                source: frame;
+                image-fit: fill;
+            }
+
+            Rectangle {
+                y: 0;
+                width: 100%;
+                height: 78px;
+                background: #07100cd9;
+            }
+
+            Rectangle {
+                y: parent.height - 132px;
+                width: 100%;
+                height: 132px;
+                background: #07100ce8;
+            }
+
+            Text {
+                x: 22px;
+                y: 19px;
+                width: 150px;
+                height: 38px;
+                text: "班里挑一";
+                color: #f5f2ea;
+                font-size: 23px;
+                font-weight: 800;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                x: parent.width / 2 - min(parent.width - 440px, 210px) / 2;
+                y: 16px;
+                width: min(parent.width - 440px, 210px);
+                height: 44px;
+                background: transparent;
+                Image {
+                    x: 0;
+                    y: 13px;
+                    width: 18px;
+                    height: 18px;
+                    source: @image-url("../assets/icons/camera.svg");
+                    colorize: #f5f2ea;
+                }
+                Text {
+                    x: 28px;
+                    y: 0;
+                    width: parent.width - 28px;
+                    height: parent.height;
+                    text: camera-name;
+                    color: #f5f2ea;
+                    font-size: 13px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            // Viewfinder corners.
+            Rectangle { x: 30px; y: 106px; width: 34px; height: 2px; background: #f5f2eaaa; }
+            Rectangle { x: 30px; y: 106px; width: 2px; height: 34px; background: #f5f2eaaa; }
+            Rectangle { x: parent.width - 64px; y: 106px; width: 34px; height: 2px; background: #f5f2eaaa; }
+            Rectangle { x: parent.width - 32px; y: 106px; width: 2px; height: 34px; background: #f5f2eaaa; }
+            Rectangle { x: 30px; y: parent.height - 172px; width: 34px; height: 2px; background: #f5f2eaaa; }
+            Rectangle { x: 30px; y: parent.height - 204px; width: 2px; height: 34px; background: #f5f2eaaa; }
+            Rectangle { x: parent.width - 64px; y: parent.height - 172px; width: 34px; height: 2px; background: #f5f2eaaa; }
+            Rectangle { x: parent.width - 32px; y: parent.height - 204px; width: 2px; height: 34px; background: #f5f2eaaa; }
+
+            Rectangle {
+                x: 0;
+                y: mod(animation-tick() / 1ms, 2200) / 2200 * parent.height;
+                width: 100%;
+                height: 2px;
+                background: @linear-gradient(90deg, #d8f26400, #d8f264cc, #d8f26400);
+            }
+
+            for face[index] in faces: Rectangle {
+                x: face.x;
+                y: face.y;
+                width: face.w;
+                height: face.h;
+                border-radius: 5px;
+                border-width: 2px;
+                border-color: #d8f264;
+                background: #d8f26408;
+
+                Rectangle {
+                    x: 0;
+                    y: -22px;
+                    width: 30px;
+                    height: 20px;
+                    border-radius: 4px;
+                    background: #d8f264;
+                    Text {
+                        text: index + 1;
+                        color: #102018;
+                        font-size: 11px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                x: parent.width / 2 - 205px;
+                y: parent.height - 111px;
+                width: 410px;
+                height: 52px;
+                border-radius: 8px;
+                background: #f5f2ebed;
+                Image {
+                    x: 16px;
+                    y: 17px;
+                    width: 18px;
+                    height: 18px;
+                    source: @image-url("../assets/icons/users.svg");
+                    colorize: #11745d;
+                }
+                Text {
+                    x: 43px;
+                    y: 0;
+                    width: parent.width - 59px;
+                    height: parent.height;
+                    text: status;
+                    color: #18231e;
+                    font-size: 14px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            Rectangle {
+                x: 24px;
+                y: parent.height - 44px;
+                width: parent.width - 48px;
+                height: 4px;
+                border-radius: 2px;
+                background: #ffffff24;
+                Rectangle {
+                    width: parent.width * progress;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: #d8f264;
+                }
+            }
+
+            Text {
+                x: 24px;
+                y: parent.height - 31px;
+                width: parent.width - 48px;
+                height: 22px;
+                text: camera-info;
+                color: #b8c5bd;
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+        }
+
+        // Compact result card.
+        if page == 2: Rectangle {
+            background: #f4f1ea;
+
+            Text {
+                x: 20px;
+                y: 14px;
+                width: parent.width - 170px;
+                height: 30px;
+                text: "抽到啦";
+                color: #18231e;
+                font-size: 18px;
+                font-weight: 800;
+                vertical-alignment: center;
+            }
+
+            Text {
+                x: 20px;
+                y: 39px;
+                width: parent.width - 170px;
+                height: 18px;
+                text: "从 " + drawn-count + " 人中选出";
+                color: #7b867f;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+
+            IconButton {
+                x: parent.width - 148px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: @image-url("../assets/icons/camera.svg");
+                label: "选择摄像头";
+                fill: transparent;
+                clicked => { toggle-cameras(); }
+            }
+            IconButton {
+                x: parent.width - 114px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: @image-url("../assets/icons/settings.svg");
+                label: "扫描设置";
+                fill: transparent;
+                clicked => { toggle-settings(); }
+            }
+            IconButton {
+                x: parent.width - 76px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: muted ? @image-url("../assets/icons/volume-x.svg") : @image-url("../assets/icons/volume.svg");
+                label: muted ? "取消静音" : "静音";
+                fill: transparent;
+                clicked => { mute-changed(!muted); }
+            }
+            IconButton {
+                x: parent.width - 42px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: @image-url("../assets/icons/x.svg");
+                label: "关闭";
+                fill: transparent;
+                clicked => { quit(); }
+            }
+
+            portrait-shell := Rectangle {
+                x: parent.width / 2 - self.width / 2;
+                y: 66px + (parent.height - 160px - self.height) / 2;
+                width: min(parent.width - 48px, min(parent.height - 160px, 220px));
+                height: self.width;
+                border-radius: self.width / 2;
+                border-width: 4px;
+                border-color: #11745d;
+                background: transparent;
+
+                Image {
+                    width: 100%;
+                    height: 100%;
+                    source: portrait;
+                    image-fit: cover;
+                }
+            }
+
+            Rectangle {
+                x: portrait-shell.x - 8px;
+                y: portrait-shell.y - 8px;
+                width: portrait-shell.width + 16px;
+                height: portrait-shell.height + 16px;
+                border-radius: self.width / 2;
+                border-width: 1px;
+                border-color: #11745d33;
+            }
+
+            PrimaryButton {
+                x: 20px;
+                y: parent.height - 70px;
+                width: parent.width - 40px;
+                text: "再抽一次";
+                icon: @image-url("../assets/icons/rotate-cw.svg");
+                clicked => { redraw(); }
+            }
+
+        }
+
+        // No-face failure card.
+        if page == 3: Rectangle {
+            background: #f4f1ea;
+
+            Text {
+                x: 20px;
+                y: 14px;
+                width: parent.width - 170px;
+                height: 30px;
+                text: "抽取失败";
+                color: #18231e;
+                font-size: 18px;
+                font-weight: 800;
+                vertical-alignment: center;
+            }
+            Text {
+                x: 20px;
+                y: 39px;
+                width: parent.width - 170px;
+                height: 18px;
+                text: "没有找到可抽取的人脸";
+                color: #7b867f;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+
+            IconButton {
+                x: parent.width - 148px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: @image-url("../assets/icons/camera.svg");
+                label: "选择摄像头";
+                fill: transparent;
+                clicked => { toggle-cameras(); }
+            }
+            IconButton {
+                x: parent.width - 114px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: @image-url("../assets/icons/settings.svg");
+                label: "扫描设置";
+                fill: transparent;
+                clicked => { toggle-settings(); }
+            }
+            IconButton {
+                x: parent.width - 76px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: muted ? @image-url("../assets/icons/volume-x.svg") : @image-url("../assets/icons/volume.svg");
+                label: muted ? "取消静音" : "静音";
+                fill: transparent;
+                clicked => { mute-changed(!muted); }
+            }
+            IconButton {
+                x: parent.width - 42px;
+                y: 13px;
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                icon: @image-url("../assets/icons/x.svg");
+                label: "关闭";
+                fill: transparent;
+                clicked => { quit(); }
+            }
+
+            Rectangle {
+                x: parent.width / 2 - 34px;
+                y: 78px;
+                width: 68px;
+                height: 68px;
+                border-radius: 34px;
+                background: #f7d8c8;
+                Image {
+                    x: 18px;
+                    y: 18px;
+                    width: 32px;
+                    height: 32px;
+                    source: @image-url("../assets/icons/alert-circle.svg");
+                    colorize: #9c402a;
+                }
+            }
+            Text {
+                x: 18px;
+                y: 158px;
+                width: parent.width - 36px;
+                height: 32px;
+                text: "未检测到人脸";
+                color: #18231e;
+                font-size: 21px;
+                font-weight: 800;
+                horizontal-alignment: center;
+            }
+            Text {
+                x: 26px;
+                y: 196px;
+                width: parent.width - 52px;
+                height: 62px;
+                text: failure-detail;
+                color: #68756e;
+                font-size: 12px;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            PrimaryButton {
+                x: 20px;
+                y: parent.height - 70px;
+                width: parent.width - 40px;
+                text: "重新扫描";
+                icon: @image-url("../assets/icons/rotate-cw.svg");
+                clicked => { redraw(); }
+            }
+        }
+
+        // Result-only camera list.
+        if page >= 2 && camera-menu: Rectangle {
+            width: 100%;
+            height: 100%;
+            background: #18231e66;
+            TouchArea {
+                clicked => { close-menus(); }
+            }
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: min(parent.width - 20px, 320px);
+                height: min(parent.height - 24px, 60px + cameras.length * 46px);
+                border-radius: 8px;
+                background: #f5f2eb;
+
+                Text {
+                    x: 18px;
+                    y: 0;
+                    width: parent.width - 62px;
+                    height: 52px;
+                    text: "选择摄像头";
+                    color: #18231e;
+                    font-size: 15px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                IconButton {
+                    x: parent.width - 42px;
+                    y: 10px;
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 16px;
+                    icon: @image-url("../assets/icons/x.svg");
+                    label: "关闭摄像头列表";
+                    fill: transparent;
+                    clicked => { toggle-cameras(); }
+                }
+                Flickable {
+                    x: 10px;
+                    y: 52px;
+                    width: parent.width - 20px;
+                    height: parent.height - 52px;
+                    content-width: self.width;
+                    content-height: 4px + cameras.length * 46px;
+
+                    for camera[index] in cameras: camera-row := TouchArea {
+                        x: 0;
+                        y: index * 46px;
+                        width: parent.width;
+                        height: 42px;
+                        accessible-role: list-item;
+                        accessible-label: camera;
+                        clicked => { select-camera(index); }
+                        Rectangle {
+                            border-radius: 6px;
+                            background: active-camera-index == index ? #e1eadc : camera-row.has-hover ? #e5e6de : transparent;
+                            Image {
+                                x: 10px;
+                                y: 12px;
+                                width: 18px;
+                                height: 18px;
+                                source: @image-url("../assets/icons/camera.svg");
+                                colorize: #11745d;
+                            }
+                            Text {
+                                x: 38px;
+                                y: 0;
+                                width: parent.width - 50px;
+                                height: parent.height;
+                                text: camera;
+                                color: active-camera-index == index ? #11745d : #26322c;
+                                font-size: 13px;
+                                font-weight: active-camera-index == index ? 700 : 400;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Result-only settings.
+        if page >= 2 && settings: Rectangle {
+            width: 100%;
+            height: 100%;
+            background: #18231e66;
+            TouchArea {
+                clicked => { close-menus(); }
+            }
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: min(parent.width - 20px, 380px);
+                height: min(parent.height - 24px, 278px);
+                border-radius: 8px;
+                background: #f5f2eb;
+
+                Text {
+                    x: 20px;
+                    y: 18px;
+                    width: parent.width - 64px;
+                    height: 32px;
+                    text: "扫描设置";
+                    color: #18231e;
+                    font-size: 19px;
+                    font-weight: 800;
+                }
+                IconButton {
+                    x: parent.width - 46px;
+                    y: 14px;
+                    width: 30px;
+                    height: 30px;
+                    border-radius: 15px;
+                    icon: @image-url("../assets/icons/x.svg");
+                    label: "关闭设置";
+                    fill: transparent;
+                    clicked => { toggle-settings(); }
+                }
+                Text {
+                    x: 20px;
+                    y: 66px;
+                    width: parent.width - 40px;
+                    height: 22px;
+                    text: "每次扫描时长";
+                    color: #56635c;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                HorizontalLayout {
+                    x: 20px;
+                    y: 94px;
+                    width: parent.width - 40px;
+                    height: 36px;
+                    spacing: 4px;
+                    DurationOption { seconds: 2; selected: scan-seconds == 2; chosen(value) => { duration-changed(value); } }
+                    DurationOption { seconds: 3; selected: scan-seconds == 3; chosen(value) => { duration-changed(value); } }
+                    DurationOption { seconds: 4; selected: scan-seconds == 4; chosen(value) => { duration-changed(value); } }
+                    DurationOption { seconds: 5; selected: scan-seconds == 5; chosen(value) => { duration-changed(value); } }
+                    DurationOption { seconds: 6; selected: scan-seconds == 6; chosen(value) => { duration-changed(value); } }
+                }
+                Rectangle {
+                    x: 20px;
+                    y: 146px;
+                    width: parent.width - 40px;
+                    height: 1px;
+                    background: #d8d8d0;
+                }
+                Text {
+                    x: 20px;
+                    y: 160px;
+                    width: parent.width - 40px;
+                    height: 32px;
+                    text: "新的时长将在下一次抽取时生效。";
+                    color: #68756e;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                PrimaryButton {
+                    x: 20px;
+                    y: parent.height - 56px;
+                    width: parent.width - 40px;
+                    text: "完成";
+                    show-icon: false;
+                    clicked => { toggle-settings(); }
+                }
+            }
+        }
+    }
+}
