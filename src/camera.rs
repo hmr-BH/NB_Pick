@@ -36,7 +36,7 @@ pub fn open(id: &str) -> Result<(Camera, String)> {
     if let Ok(formats) = camera.compatible_camera_formats()
         && let Some(format) = choose_format(&formats)
     {
-        // A 720p stream keeps preview responsive while retaining enough detail for a classroom.
+        // Preserve distant people for tiled inference; the UI remains independent of capture size.
         if camera
             .set_camera_requset(RequestedFormat::new::<RgbAFormat>(
                 RequestedFormatType::Exact(format),
@@ -66,7 +66,7 @@ pub fn read(camera: &mut Camera) -> Result<RgbImage> {
 }
 
 fn choose_format(formats: &[CameraFormat]) -> Option<CameraFormat> {
-    const TARGET_AREA: f32 = 1280.0 * 720.0;
+    const TARGET_AREA: f32 = 1920.0 * 1080.0;
     formats.iter().copied().min_by(|left, right| {
         format_score(*left, TARGET_AREA).total_cmp(&format_score(*right, TARGET_AREA))
     })
@@ -77,9 +77,6 @@ fn format_score(format: CameraFormat, target_area: f32) -> f32 {
     let height = format.height() as f32;
     let area = width * height;
     let mut score = (area / target_area).ln().abs();
-    if width > 1440.0 || height > 900.0 {
-        score += 2.0;
-    }
     let fps = format.frame_rate() as f32;
     score += (fps / 30.0).ln().abs() * 0.35;
     if fps < 15.0 {
@@ -100,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn format_prefers_reliable_720p_over_high_resolution() {
+    fn format_prefers_1080p_for_distant_people() {
         let formats = [
             CameraFormat::new(
                 nokhwa::utils::Resolution::new(1920, 1080),
@@ -120,7 +117,7 @@ mod tests {
         ];
         assert_eq!(
             choose_format(&formats).map(|format| format.resolution()),
-            Some(nokhwa::utils::Resolution::new(1280, 720))
+            Some(nokhwa::utils::Resolution::new(1920, 1080))
         );
     }
 }

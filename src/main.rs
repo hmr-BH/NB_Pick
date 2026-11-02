@@ -8,7 +8,7 @@ use nb_pick::camera;
 use nb_pick::camera::Device;
 use nb_pick::config::{Config, choose_camera};
 use nb_pick::detector::Detector;
-use nb_pick::image_ops::{FaceRect, crop_face};
+use nb_pick::image_ops::{PersonRect, crop_person};
 use rand::{rng, seq::IndexedRandom};
 use slint::{
     CloseRequestResponse, ComponentHandle, Image, ModelRc, Rgb8Pixel, Rgba8Pixel,
@@ -28,7 +28,7 @@ slint::include_modules!();
 
 struct LatestFrame {
     frame: Arc<RgbImage>,
-    faces: Vec<FaceRect>,
+    people: Vec<PersonRect>,
     detected_at: Instant,
     captured_at: Instant,
 }
@@ -44,7 +44,7 @@ struct Runtime {
     generation: Mutex<u64>,
     stop: Mutex<bool>,
     active: AtomicBool,
-    last_face_at: Mutex<Option<Instant>>,
+    last_person_at: Mutex<Option<Instant>>,
     config: Mutex<Config>,
     devices: Mutex<Vec<Device>>,
     started: Mutex<Instant>,
@@ -71,7 +71,7 @@ enum Event {
     Detected {
         generation: u64,
         frame: Arc<RgbImage>,
-        faces: Vec<FaceRect>,
+        people: Vec<PersonRect>,
     },
 }
 
@@ -98,7 +98,7 @@ fn present_latest_frame(app: &AppWindow, rt: &Runtime) {
         if latest.is_none() {
             *latest = Some(LatestFrame {
                 frame: ui_frame.frame.clone(),
-                faces: Vec::new(),
+                people: Vec::new(),
                 detected_at: Instant::now(),
                 captured_at: Instant::now(),
             });
@@ -115,7 +115,7 @@ fn present_latest_frame(app: &AppWindow, rt: &Runtime) {
     if first_frame {
         app.set_page(1);
         app.set_camera_info(ui_frame.format.into());
-        app.set_status("正在识别画面中的人脸".into());
+        app.set_status("正在识别画面中的人".into());
         show_scan_window(app.window());
         *rt.started.lock().unwrap() = Instant::now();
         if !app.get_muted()
@@ -138,7 +138,7 @@ fn process_event(app: &Weak<AppWindow>, event: Event) {
             show_scan_window(app.window());
             *rt.camera_error.lock().unwrap() = None;
             rt.active.store(true, Ordering::SeqCst);
-            *rt.last_face_at.lock().unwrap() = None;
+            *rt.last_person_at.lock().unwrap() = None;
             *rt.started.lock().unwrap() = Instant::now();
             let weak = app.as_weak();
             let detector_rt = rt.clone();
@@ -180,8 +180,8 @@ fn process_event(app: &Weak<AppWindow>, event: Event) {
             *rt.camera_error.lock().unwrap() = Some(friendly.clone());
             app.set_page(1);
             app.set_status(friendly.into());
-            app.set_face_count(0);
-            app.set_faces(ModelRc::new(VecModel::from(Vec::<FaceBox>::new())));
+            app.set_person_count(0);
+            app.set_people(ModelRc::new(VecModel::from(Vec::<PersonBox>::new())));
             app.set_progress(0.0);
             app.set_status("正在尝试恢复摄像头".into());
             show_scan_window(app.window());
@@ -194,28 +194,28 @@ fn process_event(app: &Weak<AppWindow>, event: Event) {
         Event::Detected {
             generation,
             frame,
-            faces,
+            people,
         } => {
             if generation != *rt.generation.lock().unwrap() || !rt.active.load(Ordering::SeqCst) {
                 return;
             }
             let mut lock = rt.latest.lock().unwrap();
             let Some(current) = lock.as_mut() else { return };
-            current.faces = faces.clone();
+            current.people = people.clone();
             current.detected_at = Instant::now();
             current.frame = frame.clone();
             drop(lock);
 
-            if !faces.is_empty() {
-                *rt.last_face_at.lock().unwrap() = Some(Instant::now());
+            if !people.is_empty() {
+                *rt.last_person_at.lock().unwrap() = Some(Instant::now());
             }
-            app.set_face_count(faces.len() as i32);
+            app.set_person_count(people.len() as i32);
             let (width, height) = logical_window_size(&app);
-            app.set_faces(face_boxes(&faces, &frame, width, height));
-            app.set_status(if faces.is_empty() {
-                "请让同学们面向摄像头".into()
+            app.set_people(person_boxes(&people, &frame, width, height));
+            app.set_status(if people.is_empty() {
+                "请确保同学们在摄像头画面内".into()
             } else {
-                format!("已识别 {} 人，正在抽取", faces.len()).into()
+                format!("已识别 {} 人，正在抽取", people.len()).into()
             });
         }
     }
@@ -239,14 +239,14 @@ fn detection_loop(app: Weak<AppWindow>, rt: Arc<Runtime>, mut detector: Detector
         };
         let generation = *rt.generation.lock().unwrap();
         match detector.detect(frame.as_ref()) {
-            Ok(faces) => {
+            Ok(people) => {
                 if rt.active.load(Ordering::SeqCst) {
                     send(
                         &app,
                         Event::Detected {
                             generation,
                             frame,
-                            faces,
+                            people,
                         },
                     );
                 }
@@ -393,24 +393,40 @@ fn friendly_camera_error(detail: &str) -> String {
     }
 }
 
-fn no_face_timed_out(scan_started: Instant, last_face_at: Option<Instant>, now: Instant) -> bool {
-    now.duration_since(last_face_at.unwrap_or(scan_started)) >= Duration::from_secs(5)
+fn no_person_timed_out(
+    scan_started: Instant,
+    last_person_at: Option<Instant>,
+    now: Instant,
+) -> bool {
+    now.duration_since(last_person_at.unwrap_or(scan_started)) >= Duration::from_secs(5)
 }
 
-fn face_boxes(faces: &[FaceRect], frame: &RgbImage, width: f32, height: f32) -> ModelRc<FaceBox> {
-    ModelRc::new(VecModel::from(map_face_boxes(faces, frame, width, height)))
+fn person_boxes(
+    people: &[PersonRect],
+    frame: &RgbImage,
+    width: f32,
+    height: f32,
+) -> ModelRc<PersonBox> {
+    ModelRc::new(VecModel::from(map_person_boxes(
+        people, frame, width, height,
+    )))
 }
 
-fn map_face_boxes(faces: &[FaceRect], frame: &RgbImage, width: f32, height: f32) -> Vec<FaceBox> {
+fn map_person_boxes(
+    people: &[PersonRect],
+    frame: &RgbImage,
+    width: f32,
+    height: f32,
+) -> Vec<PersonBox> {
     let scale_x = width / frame.width() as f32;
     let scale_y = height / frame.height() as f32;
-    faces
+    people
         .iter()
-        .map(|face| FaceBox {
-            x: face.x * scale_x,
-            y: face.y * scale_y,
-            w: face.w * scale_x,
-            h: face.h * scale_y,
+        .map(|person| PersonBox {
+            x: person.x * scale_x,
+            y: person.y * scale_y,
+            w: person.w * scale_x,
+            h: person.h * scale_y,
         })
         .collect()
 }
@@ -444,15 +460,21 @@ fn to_slint_circle_image(frame: &RgbImage) -> Image {
     ))
 }
 
-fn model_path() -> PathBuf {
-    std::env::current_exe()
+fn model_paths() -> (PathBuf, PathBuf) {
+    let from_executable = std::env::current_exe()
         .ok()
-        .and_then(|path| {
-            path.parent()
-                .map(|parent| parent.join("assets/models/face_detection_yunet_2023mar.onnx"))
-        })
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| PathBuf::from("assets/models/face_detection_yunet_2023mar.onnx"))
+        .and_then(|path| path.parent().map(PathBuf::from));
+    let resolve = |name: &str| {
+        from_executable
+            .as_ref()
+            .map(|parent| parent.join("assets/models").join(name))
+            .filter(|path| path.exists())
+            .unwrap_or_else(|| PathBuf::from("assets/models").join(name))
+    };
+    (
+        resolve("person_detection_yolox_s.onnx"),
+        resolve("person_keypoints_rtmpose_t.onnx"),
+    )
 }
 
 fn load_model(app: Weak<AppWindow>) {
@@ -462,7 +484,8 @@ fn load_model(app: Weak<AppWindow>) {
     }
     *rt.loading.lock().unwrap() = true;
     thread::spawn(move || {
-        let result = Detector::load(&model_path());
+        let (person_model, pose_model) = model_paths();
+        let result = Detector::load(&person_model, &pose_model);
         *runtime().loading.lock().unwrap() = false;
         match result {
             Ok(detector) => send(&app, Event::Ready(detector)),
@@ -487,7 +510,7 @@ fn shutdown() {
     }
 }
 
-fn show_no_face_failure(app: &AppWindow, rt: &Runtime) {
+fn show_no_person_failure(app: &AppWindow, rt: &Runtime) {
     rt.active.store(false, Ordering::SeqCst);
     *rt.inference.lock().unwrap() = None;
     *rt.ui_frame.lock().unwrap() = None;
@@ -509,7 +532,7 @@ fn main() -> Result<(), slint::PlatformError> {
         generation: Mutex::new(0),
         stop: Mutex::new(false),
         active: AtomicBool::new(false),
-        last_face_at: Mutex::new(None),
+        last_person_at: Mutex::new(None),
         config: Mutex::new(config.clone()),
         devices: Mutex::new(Vec::new()),
         started: Mutex::new(Instant::now()),
@@ -637,7 +660,7 @@ fn main() -> Result<(), slint::PlatformError> {
             *rt.generation.lock().unwrap() += 1;
             *rt.started.lock().unwrap() = Instant::now();
             rt.active.store(true, Ordering::SeqCst);
-            *rt.last_face_at.lock().unwrap() = None;
+            *rt.last_person_at.lock().unwrap() = None;
             app.set_page(1);
             app.set_progress(0.0);
             app.set_status("正在唤醒摄像头".into());
@@ -666,18 +689,18 @@ fn main() -> Result<(), slint::PlatformError> {
             app.set_progress((elapsed / duration).min(1.0));
 
             let scan_started = *rt.started.lock().unwrap();
-            if no_face_timed_out(
+            if no_person_timed_out(
                 scan_started,
-                *rt.last_face_at.lock().unwrap(),
+                *rt.last_person_at.lock().unwrap(),
                 Instant::now(),
             ) {
                 let detail = if rt.camera_error.lock().unwrap().is_some() {
                     "摄像头没有提供可用画面\n请检查连接或切换设备"
                 } else {
-                    "5 秒内没有检测到人脸\n请调整摄像头后重试"
+                    "5 秒内没有检测到人员\n请调整摄像头后重试"
                 };
                 app.set_failure_detail(detail.into());
-                show_no_face_failure(&app, &rt);
+                show_no_person_failure(&app, &rt);
                 return;
             }
 
@@ -686,7 +709,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 // Slint uses logical coordinates; recomputing also keeps boxes correct after a resize.
                 let (width, height) = logical_window_size(&app);
                 if let Some(latest) = rt.latest.lock().unwrap().as_ref() {
-                    app.set_faces(face_boxes(&latest.faces, &latest.frame, width, height));
+                    app.set_people(person_boxes(&latest.people, &latest.frame, width, height));
                 }
             }
 
@@ -694,20 +717,20 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             let selection = rt.latest.lock().unwrap().as_ref().and_then(|latest| {
-                if latest.faces.is_empty()
+                if latest.people.is_empty()
                     || latest.detected_at.elapsed() > Duration::from_secs(2)
                     || latest.captured_at.elapsed() > Duration::from_secs(2)
                 {
                     None
                 } else {
                     latest
-                        .faces
+                        .people
                         .choose(&mut rng())
-                        .map(|face| (crop_face(&latest.frame, *face), latest.faces.len()))
+                        .map(|person| (crop_person(&latest.frame, *person), latest.people.len()))
                 }
             });
             let Some((portrait, count)) = selection else {
-                app.set_status("正在等待稳定的人脸画面".into());
+                app.set_status("正在等待稳定的人员画面".into());
                 return;
             };
 
@@ -793,7 +816,10 @@ fn resize_result_window(window: &slint::Window) {
             Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute},
             Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow},
         },
-        UI::WindowsAndMessaging::SetForegroundWindow,
+        UI::{
+            HiDpi::GetDpiForWindow,
+            WindowsAndMessaging::{HWND_TOP, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos},
+        },
     };
     let handle = window.window_handle();
     let Ok(handle) = handle.window_handle() else {
@@ -825,20 +851,24 @@ fn resize_result_window(window: &slint::Window) {
         right,
         bottom,
     } = monitor.rcWork;
-    let width = ((right - left) / 5).max(280);
-    let height = ((bottom - top) / 3).max(330);
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    let (width, height) = result_window_physical_size(right - left, bottom - top, dpi);
     let target_x = left + (right - left - width) / 2;
     let target_y = top + (bottom - top - height) / 2;
 
-    let scale = window.scale_factor().max(0.5);
-    window.set_size(slint::LogicalSize::new(
-        width as f32 / scale,
-        height as f32 / scale,
-    ));
-    window.set_position(slint::LogicalPosition::new(
-        target_x as f32 / scale,
-        target_y as f32 / scale,
-    ));
+    // Monitor rectangles and SetWindowPos both use physical pixels. Slint will
+    // derive logical sizes from the destination monitor's own DPI.
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            target_x,
+            target_y,
+            width,
+            height,
+            SWP_SHOWWINDOW,
+        );
+    }
     unsafe {
         let _ = SetForegroundWindow(hwnd);
     }
@@ -851,6 +881,15 @@ fn resize_result_window(window: &slint::Window) {
             size_of::<i32>() as u32,
         );
     }
+}
+
+fn result_window_physical_size(work_width: i32, work_height: i32, dpi: u32) -> (i32, i32) {
+    let scale = dpi.clamp(48, 384) as f64 / 96.0;
+    let max_width = (work_width as f64 * 0.94).round() as i32;
+    let max_height = (work_height as f64 * 0.94).round() as i32;
+    let width = ((360.0 * scale).round() as i32).min(max_width).max(1);
+    let height = ((440.0 * scale).round() as i32).min(max_height).max(1);
+    (width, height)
 }
 
 #[cfg(not(windows))]
@@ -902,18 +941,18 @@ mod ui_snapshots {
         app.set_page(1);
         app.set_frame(to_slint_image(&frame));
         app.set_status("已识别 12 人，正在抽取".into());
-        app.set_face_count(12);
+        app.set_person_count(12);
         app.set_camera_name("教室摄像头".into());
-        app.set_faces(face_boxes(
+        app.set_people(person_boxes(
             &[
-                FaceRect {
+                PersonRect {
                     x: 210.0,
                     y: 120.0,
                     w: 180.0,
                     h: 220.0,
                     score: 0.9,
                 },
-                FaceRect {
+                PersonRect {
                     x: 780.0,
                     y: 180.0,
                     w: 150.0,
@@ -952,8 +991,12 @@ mod ui_snapshots {
         save_snapshot(&app, "ui-settings.png");
         app.set_settings(false);
 
+        app.window().set_size(slint::LogicalSize::new(360.0, 440.0));
         app.set_page(3);
         save_snapshot(&app, "ui-failure.png");
+
+        app.window().set_size(slint::LogicalSize::new(320.0, 360.0));
+        save_snapshot(&app, "ui-failure-compact.png");
     }
 }
 
@@ -962,16 +1005,16 @@ mod geometry_tests {
     use super::*;
 
     #[test]
-    fn face_boxes_follow_viewport_scaling() {
+    fn person_boxes_follow_viewport_scaling() {
         let frame = RgbImage::new(1280, 720);
-        let faces = [FaceRect {
+        let people = [PersonRect {
             x: 640.0,
             y: 360.0,
             w: 128.0,
             h: 72.0,
             score: 0.9,
         }];
-        let mapped = map_face_boxes(&faces, &frame, 1000.0, 650.0);
+        let mapped = map_person_boxes(&people, &frame, 1000.0, 650.0);
         assert!((mapped[0].x - 500.0).abs() < 0.01);
         assert!((mapped[0].y - 325.0).abs() < 0.01);
         assert!((mapped[0].w - 100.0).abs() < 0.01);
@@ -979,24 +1022,41 @@ mod geometry_tests {
     }
 
     #[test]
-    fn five_second_no_face_timeout_tracks_last_face() {
+    fn result_window_uses_consistent_logical_size_across_monitor_dpi() {
+        let at_100 = result_window_physical_size(1920, 1040, 96);
+        let at_150 = result_window_physical_size(2560, 1440, 144);
+        let at_200 = result_window_physical_size(3840, 2160, 192);
+        assert_eq!(at_100, (360, 440));
+        assert_eq!(at_150, (540, 660));
+        assert_eq!(at_200, (720, 880));
+    }
+
+    #[test]
+    fn result_window_stays_inside_small_work_areas() {
+        let (width, height) = result_window_physical_size(800, 600, 192);
+        assert!(width <= 800 && height <= 600);
+        assert!(width > 0 && height > 0);
+    }
+
+    #[test]
+    fn five_second_no_person_timeout_tracks_last_person() {
         let start = Instant::now();
-        assert!(!no_face_timed_out(
+        assert!(!no_person_timed_out(
             start,
             None,
             start + Duration::from_millis(4999)
         ));
-        assert!(no_face_timed_out(
+        assert!(no_person_timed_out(
             start,
             None,
             start + Duration::from_secs(5)
         ));
-        assert!(!no_face_timed_out(
+        assert!(!no_person_timed_out(
             start,
             Some(start + Duration::from_secs(1)),
             start + Duration::from_secs(5)
         ));
-        assert!(no_face_timed_out(
+        assert!(no_person_timed_out(
             start,
             Some(start + Duration::from_secs(1)),
             start + Duration::from_secs(6)

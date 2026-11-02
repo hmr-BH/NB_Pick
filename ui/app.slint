@@ -1,4 +1,17 @@
-export struct FaceBox {
+export global Theme {
+    out property <color> accent: #2563eb;
+    out property <color> accent-hover: #3b82f6;
+    out property <color> accent-pressed: #1d4ed8;
+    out property <color> accent-bright: #60a5fa;
+    out property <color> accent-soft: #dbeafe;
+    out property <color> background: #f7f8fa;
+    out property <color> surface: #ffffff;
+    out property <color> text: #17191f;
+    out property <color> secondary: #626874;
+    out property <color> dark: #111318;
+}
+
+export struct PersonBox {
     x: length,
     y: length,
     w: length,
@@ -8,14 +21,14 @@ export struct FaceBox {
 component IconButton inherits Rectangle {
     in property <image> icon;
     in property <string> label;
-    in property <color> tint: #18231e;
-    in property <color> fill: #f5f2ebeb;
+    in property <color> tint: Theme.text;
+    in property <color> fill: #ffffffeb;
     callback clicked();
 
     width: 38px;
     height: 38px;
     border-radius: 19px;
-    background: fill;
+    background: touch.has-hover ? #e8edf5 : fill;
     accessible-role: button;
     accessible-label: label;
 
@@ -28,7 +41,8 @@ component IconButton inherits Rectangle {
         colorize: root.tint;
     }
 
-    TouchArea {
+    touch := TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -38,12 +52,13 @@ component PrimaryButton inherits TouchArea {
     in property <image> icon;
     in property <bool> show-icon: true;
     height: 48px;
+    mouse-cursor: pointer;
     accessible-role: button;
     accessible-label: text;
 
     Rectangle {
         border-radius: 8px;
-        background: root.pressed ? #0d634f : root.has-hover ? #158b6f : #11745d;
+        background: root.pressed ? Theme.accent-pressed : root.has-hover ? Theme.accent-hover : Theme.accent;
 
         HorizontalLayout {
             x: 0;
@@ -83,16 +98,17 @@ component DurationOption inherits TouchArea {
 
     horizontal-stretch: 1;
     height: 36px;
+    mouse-cursor: pointer;
     accessible-role: radio-button;
     accessible-label: seconds + " 秒";
     clicked => { root.chosen(root.seconds); }
 
     Rectangle {
         border-radius: 6px;
-        background: root.selected ? #18231e : root.has-hover ? #e7e7e0 : #efeee8;
+        background: root.selected ? Theme.accent : root.has-hover ? #e4e7ec : #eff1f4;
         Text {
             text: root.seconds + " 秒";
-            color: root.selected ? white : #4e5b54;
+            color: root.selected ? white : Theme.secondary;
             font-size: 13px;
             font-weight: root.selected ? 700 : 500;
             horizontal-alignment: center;
@@ -103,17 +119,18 @@ component DurationOption inherits TouchArea {
 
 export component AppWindow inherits Window {
     title: "班里挑一";
+    icon: @image-url("../assets/icons/app.svg");
     in property <int> page: 0;
     in property <image> frame;
     in property <image> portrait;
-    in property <[FaceBox]> faces;
+    in property <[PersonBox]> people;
     in property <[string]> cameras: [];
-    in property <string> status: "正在准备离线人脸模型";
+    in property <string> status: "正在准备离线人体模型";
     in property <string> camera-info: "正在查找摄像头";
     in property <string> camera-name: "摄像头";
-    in property <string> failure-detail: "5 秒内没有检测到人脸\n请调整摄像头后重试";
+    in property <string> failure-detail: "5 秒内没有检测到人员\n请调整摄像头后重试";
     in property <float> progress: 0;
-    in property <int> face-count: 0;
+    in property <int> person-count: 0;
     in property <int> drawn-count: 0;
     in property <int> active-camera-index: -1;
     in property <float> scan-seconds: 3;
@@ -142,7 +159,7 @@ export component AppWindow inherits Window {
         height: 100%;
         border-radius: page == 2 ? 22px : 0px;
         clip: true;
-        background: page == 2 ? #f4f1ea : #09110e;
+        background: page >= 2 ? Theme.background : Theme.dark;
 
         key-handler := FocusScope {
             key-pressed(event) => {
@@ -164,7 +181,7 @@ export component AppWindow inherits Window {
 
         // Loading and model failure.
         if page == 0: Rectangle {
-            background: #09110e;
+            background: Theme.dark;
 
             Rectangle {
                 x: parent.width / 2 - 34px;
@@ -172,14 +189,14 @@ export component AppWindow inherits Window {
                 width: 68px;
                 height: 68px;
                 border-radius: 20px;
-                background: #d8f264;
+                background: Theme.accent;
                 Image {
                     x: 19px;
                     y: 19px;
                     width: 30px;
                     height: 30px;
-                    source: @image-url("../assets/icons/scan-face.svg");
-                    colorize: #102018;
+                    source: @image-url("../assets/icons/users.svg");
+                    colorize: white;
                 }
             }
 
@@ -188,7 +205,7 @@ export component AppWindow inherits Window {
                 y: parent.height / 2 - 45px;
                 width: parent.width - 40px;
                 text: "班里挑一";
-                color: #f5f2ea;
+                color: #f7f8fa;
                 font-size: 31px;
                 font-weight: 800;
                 horizontal-alignment: center;
@@ -200,7 +217,7 @@ export component AppWindow inherits Window {
                 width: parent.width - 60px;
                 height: 54px;
                 text: status;
-                color: #9caaa3;
+                color: #a7adb8;
                 font-size: 14px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -213,13 +230,13 @@ export component AppWindow inherits Window {
                 width: 160px;
                 height: 3px;
                 border-radius: 2px;
-                background: #26332d;
+                background: #343943;
 
                 if progress >= 0: Rectangle {
                     width: parent.width * progress;
                     height: 3px;
                     border-radius: 2px;
-                    background: #d8f264;
+                    background: Theme.accent-bright;
                 }
             }
 
@@ -235,7 +252,7 @@ export component AppWindow inherits Window {
 
         // Live classroom scanning.
         if page == 1: Rectangle {
-            background: #07100c;
+            background: Theme.dark;
 
             Image {
                 width: 100%;
@@ -248,14 +265,14 @@ export component AppWindow inherits Window {
                 y: 0;
                 width: 100%;
                 height: 78px;
-                background: #07100cd9;
+                background: #111318d9;
             }
 
             Rectangle {
                 y: parent.height - 132px;
                 width: 100%;
                 height: 132px;
-                background: #07100ce8;
+                background: #111318e8;
             }
 
             Text {
@@ -264,7 +281,7 @@ export component AppWindow inherits Window {
                 width: 150px;
                 height: 38px;
                 text: "班里挑一";
-                color: #f5f2ea;
+                color: #f7f8fa;
                 font-size: 23px;
                 font-weight: 800;
                 vertical-alignment: center;
@@ -282,7 +299,7 @@ export component AppWindow inherits Window {
                     width: 18px;
                     height: 18px;
                     source: @image-url("../assets/icons/camera.svg");
-                    colorize: #f5f2ea;
+                    colorize: #f7f8fa;
                 }
                 Text {
                     x: 28px;
@@ -290,7 +307,7 @@ export component AppWindow inherits Window {
                     width: parent.width - 28px;
                     height: parent.height;
                     text: camera-name;
-                    color: #f5f2ea;
+                    color: #f7f8fa;
                     font-size: 13px;
                     font-weight: 600;
                     vertical-alignment: center;
@@ -299,32 +316,32 @@ export component AppWindow inherits Window {
             }
 
             // Viewfinder corners.
-            Rectangle { x: 30px; y: 106px; width: 34px; height: 2px; background: #f5f2eaaa; }
-            Rectangle { x: 30px; y: 106px; width: 2px; height: 34px; background: #f5f2eaaa; }
-            Rectangle { x: parent.width - 64px; y: 106px; width: 34px; height: 2px; background: #f5f2eaaa; }
-            Rectangle { x: parent.width - 32px; y: 106px; width: 2px; height: 34px; background: #f5f2eaaa; }
-            Rectangle { x: 30px; y: parent.height - 172px; width: 34px; height: 2px; background: #f5f2eaaa; }
-            Rectangle { x: 30px; y: parent.height - 204px; width: 2px; height: 34px; background: #f5f2eaaa; }
-            Rectangle { x: parent.width - 64px; y: parent.height - 172px; width: 34px; height: 2px; background: #f5f2eaaa; }
-            Rectangle { x: parent.width - 32px; y: parent.height - 204px; width: 2px; height: 34px; background: #f5f2eaaa; }
+            Rectangle { x: 30px; y: 106px; width: 34px; height: 2px; background: #ffffffaa; }
+            Rectangle { x: 30px; y: 106px; width: 2px; height: 34px; background: #ffffffaa; }
+            Rectangle { x: parent.width - 64px; y: 106px; width: 34px; height: 2px; background: #ffffffaa; }
+            Rectangle { x: parent.width - 32px; y: 106px; width: 2px; height: 34px; background: #ffffffaa; }
+            Rectangle { x: 30px; y: parent.height - 172px; width: 34px; height: 2px; background: #ffffffaa; }
+            Rectangle { x: 30px; y: parent.height - 204px; width: 2px; height: 34px; background: #ffffffaa; }
+            Rectangle { x: parent.width - 64px; y: parent.height - 172px; width: 34px; height: 2px; background: #ffffffaa; }
+            Rectangle { x: parent.width - 32px; y: parent.height - 204px; width: 2px; height: 34px; background: #ffffffaa; }
 
             Rectangle {
                 x: 0;
                 y: mod(animation-tick() / 1ms, 2200) / 2200 * parent.height;
                 width: 100%;
                 height: 2px;
-                background: @linear-gradient(90deg, #d8f26400, #d8f264cc, #d8f26400);
+                background: @linear-gradient(90deg, #60a5fa00, #60a5facc, #60a5fa00);
             }
 
-            for face[index] in faces: Rectangle {
-                x: face.x;
-                y: face.y;
-                width: face.w;
-                height: face.h;
+            for person[index] in people: Rectangle {
+                x: person.x;
+                y: person.y;
+                width: person.w;
+                height: person.h;
                 border-radius: 5px;
                 border-width: 2px;
-                border-color: #d8f264;
-                background: #d8f26408;
+                border-color: Theme.accent-bright;
+                background: #60a5fa10;
 
                 Rectangle {
                     x: 0;
@@ -332,10 +349,10 @@ export component AppWindow inherits Window {
                     width: 30px;
                     height: 20px;
                     border-radius: 4px;
-                    background: #d8f264;
+                    background: Theme.accent;
                     Text {
                         text: index + 1;
-                        color: #102018;
+                        color: white;
                         font-size: 11px;
                         font-weight: 800;
                         horizontal-alignment: center;
@@ -350,14 +367,14 @@ export component AppWindow inherits Window {
                 width: 410px;
                 height: 52px;
                 border-radius: 8px;
-                background: #f5f2ebed;
+                background: #fffffff2;
                 Image {
                     x: 16px;
                     y: 17px;
                     width: 18px;
                     height: 18px;
                     source: @image-url("../assets/icons/users.svg");
-                    colorize: #11745d;
+                    colorize: Theme.accent;
                 }
                 Text {
                     x: 43px;
@@ -365,7 +382,7 @@ export component AppWindow inherits Window {
                     width: parent.width - 59px;
                     height: parent.height;
                     text: status;
-                    color: #18231e;
+                    color: Theme.text;
                     font-size: 14px;
                     font-weight: 600;
                     vertical-alignment: center;
@@ -384,7 +401,7 @@ export component AppWindow inherits Window {
                     width: parent.width * progress;
                     height: 4px;
                     border-radius: 2px;
-                    background: #d8f264;
+                    background: Theme.accent-bright;
                 }
             }
 
@@ -394,7 +411,7 @@ export component AppWindow inherits Window {
                 width: parent.width - 48px;
                 height: 22px;
                 text: camera-info;
-                color: #b8c5bd;
+                color: #b7bdc7;
                 font-size: 11px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -405,7 +422,7 @@ export component AppWindow inherits Window {
 
         // Compact result card.
         if page == 2: Rectangle {
-            background: #f4f1ea;
+            background: Theme.background;
 
             Text {
                 x: 20px;
@@ -413,7 +430,7 @@ export component AppWindow inherits Window {
                 width: parent.width - 170px;
                 height: 30px;
                 text: "抽到啦";
-                color: #18231e;
+                color: Theme.text;
                 font-size: 18px;
                 font-weight: 800;
                 vertical-alignment: center;
@@ -425,7 +442,7 @@ export component AppWindow inherits Window {
                 width: parent.width - 170px;
                 height: 18px;
                 text: "从 " + drawn-count + " 人中选出";
-                color: #7b867f;
+                color: Theme.secondary;
                 font-size: 11px;
                 vertical-alignment: center;
             }
@@ -482,7 +499,7 @@ export component AppWindow inherits Window {
                 height: self.width;
                 border-radius: self.width / 2;
                 border-width: 4px;
-                border-color: #11745d;
+                border-color: Theme.accent;
                 background: transparent;
 
                 Image {
@@ -500,7 +517,7 @@ export component AppWindow inherits Window {
                 height: portrait-shell.height + 16px;
                 border-radius: self.width / 2;
                 border-width: 1px;
-                border-color: #11745d33;
+                border-color: #2563eb33;
             }
 
             PrimaryButton {
@@ -514,9 +531,9 @@ export component AppWindow inherits Window {
 
         }
 
-        // No-face failure card.
+        // No-person failure card.
         if page == 3: Rectangle {
-            background: #f4f1ea;
+            background: Theme.background;
 
             Text {
                 x: 20px;
@@ -524,7 +541,7 @@ export component AppWindow inherits Window {
                 width: parent.width - 170px;
                 height: 30px;
                 text: "抽取失败";
-                color: #18231e;
+                color: Theme.text;
                 font-size: 18px;
                 font-weight: 800;
                 vertical-alignment: center;
@@ -534,8 +551,8 @@ export component AppWindow inherits Window {
                 y: 39px;
                 width: parent.width - 170px;
                 height: 18px;
-                text: "没有找到可抽取的人脸";
-                color: #7b867f;
+                text: "没有找到可抽取的人";
+                color: Theme.secondary;
                 font-size: 11px;
                 vertical-alignment: center;
             }
@@ -586,42 +603,51 @@ export component AppWindow inherits Window {
             }
 
             Rectangle {
-                x: parent.width / 2 - 34px;
-                y: 78px;
-                width: 68px;
-                height: 68px;
-                border-radius: 34px;
-                background: #f7d8c8;
-                Image {
-                    x: 18px;
-                    y: 18px;
-                    width: 32px;
-                    height: 32px;
-                    source: @image-url("../assets/icons/alert-circle.svg");
-                    colorize: #9c402a;
-                }
-            }
-            Text {
                 x: 18px;
-                y: 158px;
+                y: 64px;
                 width: parent.width - 36px;
-                height: 32px;
-                text: "未检测到人脸";
-                color: #18231e;
-                font-size: 21px;
-                font-weight: 800;
-                horizontal-alignment: center;
-            }
-            Text {
-                x: 26px;
-                y: 196px;
-                width: parent.width - 52px;
-                height: 62px;
-                text: failure-detail;
-                color: #68756e;
-                font-size: 12px;
-                horizontal-alignment: center;
-                wrap: word-wrap;
+                height: parent.height - 150px;
+                background: transparent;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        height: 68px;
+                        alignment: center;
+                        Rectangle {
+                            width: 68px;
+                            height: 68px;
+                            border-radius: 34px;
+                            background: Theme.accent-soft;
+                            Image {
+                                x: 18px;
+                                y: 18px;
+                                width: 32px;
+                                height: 32px;
+                                source: @image-url("../assets/icons/alert-circle.svg");
+                                colorize: Theme.accent;
+                            }
+                        }
+                    }
+                    Text {
+                        height: 32px;
+                        text: "未检测到人员";
+                        color: Theme.text;
+                        font-size: 21px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        height: 62px;
+                        text: failure-detail;
+                        color: Theme.secondary;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
             }
             PrimaryButton {
                 x: 20px;
@@ -637,7 +663,7 @@ export component AppWindow inherits Window {
         if page >= 2 && camera-menu: Rectangle {
             width: 100%;
             height: 100%;
-            background: #18231e66;
+            background: #17191f66;
             TouchArea {
                 clicked => { close-menus(); }
             }
@@ -647,7 +673,7 @@ export component AppWindow inherits Window {
                 width: min(parent.width - 20px, 320px);
                 height: min(parent.height - 24px, 60px + cameras.length * 46px);
                 border-radius: 8px;
-                background: #f5f2eb;
+                background: Theme.surface;
 
                 Text {
                     x: 18px;
@@ -655,7 +681,7 @@ export component AppWindow inherits Window {
                     width: parent.width - 62px;
                     height: 52px;
                     text: "选择摄像头";
-                    color: #18231e;
+                    color: Theme.text;
                     font-size: 15px;
                     font-weight: 700;
                     vertical-alignment: center;
@@ -689,14 +715,14 @@ export component AppWindow inherits Window {
                         clicked => { select-camera(index); }
                         Rectangle {
                             border-radius: 6px;
-                            background: active-camera-index == index ? #e1eadc : camera-row.has-hover ? #e5e6de : transparent;
+                            background: active-camera-index == index ? Theme.accent-soft : camera-row.has-hover ? #e8edf5 : transparent;
                             Image {
                                 x: 10px;
                                 y: 12px;
                                 width: 18px;
                                 height: 18px;
                                 source: @image-url("../assets/icons/camera.svg");
-                                colorize: #11745d;
+                                colorize: Theme.accent;
                             }
                             Text {
                                 x: 38px;
@@ -704,7 +730,7 @@ export component AppWindow inherits Window {
                                 width: parent.width - 50px;
                                 height: parent.height;
                                 text: camera;
-                                color: active-camera-index == index ? #11745d : #26322c;
+                                color: active-camera-index == index ? Theme.accent : Theme.text;
                                 font-size: 13px;
                                 font-weight: active-camera-index == index ? 700 : 400;
                                 vertical-alignment: center;
@@ -720,7 +746,7 @@ export component AppWindow inherits Window {
         if page >= 2 && settings: Rectangle {
             width: 100%;
             height: 100%;
-            background: #18231e66;
+            background: #17191f66;
             TouchArea {
                 clicked => { close-menus(); }
             }
@@ -730,7 +756,7 @@ export component AppWindow inherits Window {
                 width: min(parent.width - 20px, 380px);
                 height: min(parent.height - 24px, 278px);
                 border-radius: 8px;
-                background: #f5f2eb;
+                background: Theme.surface;
 
                 Text {
                     x: 20px;
@@ -738,7 +764,7 @@ export component AppWindow inherits Window {
                     width: parent.width - 64px;
                     height: 32px;
                     text: "扫描设置";
-                    color: #18231e;
+                    color: Theme.text;
                     font-size: 19px;
                     font-weight: 800;
                 }
@@ -759,7 +785,7 @@ export component AppWindow inherits Window {
                     width: parent.width - 40px;
                     height: 22px;
                     text: "每次扫描时长";
-                    color: #56635c;
+                    color: Theme.secondary;
                     font-size: 12px;
                     font-weight: 600;
                 }
@@ -780,7 +806,7 @@ export component AppWindow inherits Window {
                     y: 146px;
                     width: parent.width - 40px;
                     height: 1px;
-                    background: #d8d8d0;
+                    background: #d9dde5;
                 }
                 Text {
                     x: 20px;
@@ -788,7 +814,7 @@ export component AppWindow inherits Window {
                     width: parent.width - 40px;
                     height: 32px;
                     text: "新的时长将在下一次抽取时生效。";
-                    color: #68756e;
+                    color: Theme.secondary;
                     font-size: 12px;
                     wrap: word-wrap;
                 }
